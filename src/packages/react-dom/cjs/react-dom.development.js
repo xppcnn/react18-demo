@@ -12726,6 +12726,11 @@ var currentlyProcessingQueue;
   currentlyProcessingQueue = null;
 }
 
+/**
+ * 初始化一个UpdateQueue
+ * updateQueue队列保存fiber更新时的要执行的内容
+ * @param {*} fiber 
+ */
 function initializeUpdateQueue(fiber) {
   var queue = {
     baseState: fiber.memoizedState,
@@ -12740,6 +12745,12 @@ function initializeUpdateQueue(fiber) {
   };
   fiber.updateQueue = queue;
 }
+/**
+ * 
+ * @param {*} current 
+ * @param {*} workInProgress 
+* 将current的updateQueue赋值给wip.updateQueue
+ */
 function cloneUpdateQueue(current, workInProgress) {
   // Clone the update queue from current. Unless it's already a clone.
   var queue = workInProgress.updateQueue;
@@ -12767,6 +12778,13 @@ function createUpdate(eventTime, lane) {
   };
   return update;
 }
+/**
+ *将update节点添加到fiber的updateQueue.shared.pending中
+ * @param {*} fiber 
+ * @param {*} update 
+ * @param {*} lane 
+ * @returns 
+ */
 function enqueueUpdate(fiber, update, lane) {
   var updateQueue = fiber.updateQueue;
 
@@ -12797,8 +12815,16 @@ function enqueueUpdate(fiber, update, lane) {
 
     if (pending === null) {
       // This is the first update. Create a circular list.
+    /**
+      update = u1
+     * u1 -> u1
+     */
       update.next = update;
     } else {
+    /*
+      update = u2
+      u2->u1->u2
+    */
       update.next = pending.next;
       pending.next = update;
     }
@@ -12922,7 +12948,19 @@ function enqueueCapturedUpdate(workInProgress, capturedUpdate) {
 
   queue.lastBaseUpdate = capturedUpdate;
 }
-
+/**
+ * 
+ * 1.ReplaceState：直接舍弃掉旧状态，返回更新后的新状态；
+ * 2.UpdateState：新状态和旧状态的数据合并后再返回；
+ * 3.ForceUpdate：只修改 hasForceUpdate 为 true，返回的还是旧状态；
+ * @param {*} workInProgress 
+ * @param {*} queue 
+ * @param {*} update 
+ * @param {*} prevState 
+ * @param {*} nextProps 
+ * @param {*} instance 
+ * @returns 
+ */
 function getStateFromUpdate(workInProgress, queue, update, prevState, nextProps, instance) {
   switch (update.tag) {
     case ReplaceState:
@@ -13013,8 +13051,19 @@ function getStateFromUpdate(workInProgress, queue, update, prevState, nextProps,
 
   return prevState;
 }
-
+/**
+ * 1.将当前将要进行的更新 shared.pending 的环形链表，拆开拼接到到 lastBaseUpdate 的后面；
+    2.执行 firstBaseUpdate 链表的操作时，若当前 update 对应的任务的优先级符合要求，则执行；若优先级较低，
+    则存储执行到当前节点的状态，做为下次渲染时的初始值，和接下来所有的 update 节点；
+   3.将执行所有操作后得到的 newState 重新给到 workInProgress.memoizedState；然后存储刚
+   才淘汰下来的低优先级任务的链表，以便下次更新；
+ * @param {*} workInProgress 
+ * @param {*} props 
+ * @param {*} instance 
+ * @param {*} renderLanes 
+ */
 function processUpdateQueue(workInProgress, props, instance, renderLanes) {
+  // 在hostROoot或者classCompoonent中updateQueue不能为空
   // This is always non-null on a ClassComponent or HostRoot
   var queue = workInProgress.updateQueue;
   hasForceUpdate = false;
@@ -13027,15 +13076,21 @@ function processUpdateQueue(workInProgress, props, instance, renderLanes) {
   var lastBaseUpdate = queue.lastBaseUpdate; // Check if there are pending updates. If so, transfer them to the base queue.
 
   var pendingQueue = queue.shared.pending;
-
+  // 检测是否存在将要进行的更新，若存在，则将其拼接到 lastBaseUpdate 的后面，并清空刚才的链表
   if (pendingQueue !== null) {
     queue.shared.pending = null; // The pending queue is circular. Disconnect the pointer between first
     // and last so that it's non-circular.
 
     var lastPendingUpdate = pendingQueue;
     var firstPendingUpdate = lastPendingUpdate.next;
-    lastPendingUpdate.next = null; // Append pending updates to base queue
+    lastPendingUpdate.next = null; // Append pending updates to base queue// 最后一个节点与第一个节点断开
 
+    /**
+     * 将 pendingQueue 拼接到 更新链表 queue.firstBaseUpdate 的后面
+     * 1. 更新链表的最后那个节点为空，说明当前更新链表为空，把要更新的首节点 firstPendingUpdate 给到 firstBaseUpdate即可；
+     * 2. 若更新链表的尾节点不为空，则将要更新的首节点 firstPendingUpdate 拼接到 lastBaseUpdate 的后面；
+     * 3. 拼接完毕后，lastBaseUpdate 指向到新的更新链表最后的那个节点；
+     */
     if (lastBaseUpdate === null) {
       firstBaseUpdate = firstPendingUpdate;
     } else {
@@ -13048,6 +13103,11 @@ function processUpdateQueue(workInProgress, props, instance, renderLanes) {
     // lists and take advantage of structural sharing.
     // TODO: Pass `current` as argument
 
+    /**
+     * 若workInProgress对应的在current的那个fiber节点，其更新队列的最后那个节点与当前的最后那个节点不一样，
+     * 则我们将上面「将要更新」的链表的头指针和尾指针给到current节点的更新队列中，
+     * 拼接方式与上面的一样
+     */
     var current = workInProgress.alternate;
 
     if (current !== null) {
@@ -13055,6 +13115,8 @@ function processUpdateQueue(workInProgress, props, instance, renderLanes) {
       var currentQueue = current.updateQueue;
       var currentLastBaseUpdate = currentQueue.lastBaseUpdate;
 
+       // 若current更新链表的最后那个节点与当前将要更新的链表的最后那个节点不一样
+      // 则，把将要更新的链表也拼接到current中
       if (currentLastBaseUpdate !== lastBaseUpdate) {
         if (currentLastBaseUpdate === null) {
           currentQueue.firstBaseUpdate = firstPendingUpdate;
@@ -13067,14 +13129,31 @@ function processUpdateQueue(workInProgress, props, instance, renderLanes) {
     }
   } // These values may change as we process the queue.
 
-
+  /**
+   * 进行到这里，render()初始更新时，放在 queue.shared.pending 中的update节点（里面存放着element结构），
+   * 就已经放到 queue.firstBaseUpdate 里了，
+   * 因此 firstBaseUpdate 里肯定存放了一个 update 节点，一定不为空，进入到 if 的逻辑中
+   */
   if (firstBaseUpdate !== null) {
     // Iterate through the list of updates to compute the result.
     var newState = queue.baseState; // TODO: Don't need to accumulate this. Instead, we can remove renderLanes
     // from the original lanes.
 
     var newLanes = NoLanes;
+    /**
+     * 下次渲染时的初始值
+     * 1. 若存在低优先级的任务，则该 newBaseState 为第一个低优先级任务之前计算后的值；
+     * 2. 若不存在低优先级的任务，则 newBaseState 为执行完所有任务后得到的值；
+     */
     var newBaseState = null;
+     /**
+     * 下面的两个指针用来存放低优先级的更新链表，
+     * 即 firstBaseUpdate 链表中，可能会存在一些优先级不够的update，
+     * 若存在低优先级的update，则将其拼接到 newFirstBaseUpdate 里，
+     * 同时，既然存在低优先级的任务，为了保证整个更新的完整性，也会将已经执行update后的结果，也放到这个新链表中，
+     * 这里存在一个问题，若低优先级任务是中间才出现的，怎么办呢？
+     * 解决方案：将执行到当前update前的state设置为新链表的初始值：newBaseState = newState;
+     */
     var newFirstBaseUpdate = null;
     var newLastBaseUpdate = null;
     var update = firstBaseUpdate;
@@ -13083,10 +13162,27 @@ function processUpdateQueue(workInProgress, props, instance, renderLanes) {
       var updateLane = update.lane;
       var updateEventTime = update.eventTime;
 
+      /**
+       * 判断 updateLane 是否是 renderLanes 的子集，
+       * if 这里有个取反的符号，导致理解起来可能有点困难，实际上：
+       * 1. 若 update 的 lane (又名 updateLane) 是 renderLanes 的子集，则执行该update；
+       * 2. 若不是其子集，则将其放到心的队列中，等待下次的执行；
+       */
       if (!isSubsetOfLanes(renderLanes, updateLane)) {
         // Priority is insufficient. Skip this update. If this is the first
         // skipped update, the previous update/state is the new base
         // update/state.
+        /**
+         * 若当前 update 的操作的优先级不够。跳过此更新。
+         * 将该update放到新的队列中，为了保证链式操作的连续性，下面else逻辑中已经可以执行的update，也放到这个队列中，
+         * 这里还有一个问题，从第一个低优先级的任务到最后都已经存储起来了，那新的初始状态是什么呢？
+         * 新的初始状态就是当前跳过的update节点时的那个状态。新的初始状态，只有在第一个跳过任务时才需要设置。
+         * 例如我们初始状态是0，有10个update的操作，第0个update的操作是+0，第1个update的操作是+1，第2个update的操作是+2，依次类推；
+         * 若第4个update是一个低优先级的操作，其他的都是正常的优先级。
+         * 那么将第4个update放到新的链表进行存储时，此时要存储的初始值就是执行当前节点前的值，是6（state+0+1+2+3）
+         * 后续的update即使当前已经执行过了，也是要放到新的链表中的，否则更新就会乱掉。
+         * 下次渲染时，就是以初始state为6，+4的那个update开始，重新判断优先级
+         */
         var clone = {
           eventTime: updateEventTime,
           lane: updateLane,
@@ -13095,34 +13191,61 @@ function processUpdateQueue(workInProgress, props, instance, renderLanes) {
           callback: update.callback,
           next: null
         };
-
+        // 拼接低优先级的任务
         if (newLastBaseUpdate === null) {
+          // 还没有节点，这clone就是头结点
+          // 并将此时的 newState 放到新的 newBaseState中
           newFirstBaseUpdate = newLastBaseUpdate = clone;
           newBaseState = newState;
         } else {
+          // 已经有节点了，直接向后拼接
           newLastBaseUpdate = newLastBaseUpdate.next = clone;
         } // Update the remaining priority in the queue.
 
 
         newLanes = mergeLanes(newLanes, updateLane);
       } else {
+        // 此更新具有足够的优先级
+        // 初始render()时会走这里
         // This update does have sufficient priority.
         if (newLastBaseUpdate !== null) {
+          /**
+           * 若存储低优先级的更新链表不为空，则为了操作的完整性，即使当前update会执行，
+           * 也将当前的update节点也拼接到后面，
+           * 但初始render()渲染时，newLastBaseUpdate为空，走不到 if 这里
+          */
           var _clone = {
             eventTime: updateEventTime,
             // This update is going to be committed so we never want uncommit
             // it. Using NoLane works because 0 is a subset of all bitmasks, so
             // this will never be skipped by the check above.
+            /**
+             * 翻译：这次update将要被提交更新，因此后续我们不希望取消这个提交。
+             * 使用 NoLane 这个是可行的，因为0是任何掩码的子集，
+             * 所以上面 if 的检测`isSubsetOfLanes(renderLanes, updateLane)`，永远都会为真，
+             * 该update永远不会被作为低优先级进行跳过，每次都会执行
+             */
             lane: NoLane,
             tag: update.tag,
             payload: update.payload,
             callback: update.callback,
             next: null
           };
+          // 拼接到低优先级链表的后面
           newLastBaseUpdate = newLastBaseUpdate.next = _clone;
         } // Process this update.
 
-
+        /**
+         * render()时 newState 的默认值：
+         * {
+         *  cache: {controller: AbortController, data: Map(0), refCount: 1}
+         *  element: null
+         *  isDehydrated: false
+         *  pendingSuspenseBoundaries: null
+         *  transitions: null
+         * }
+         * 执行 getStateFromUpdate() 后，则会将 update 中的 element 给到 newState 中
+         */
         newState = getStateFromUpdate(workInProgress, queue, update, newState, props, instance);
         var callback = update.callback;
 
@@ -13139,10 +13262,15 @@ function processUpdateQueue(workInProgress, props, instance, renderLanes) {
           }
         }
       }
-
+      //初始render()时，只有一个update节点，next为null，直接break，跳出循环
       update = update.next;
 
       if (update === null) {
+          /**
+         * 在上面将 queue.shared.pending 放到firstBaseUpdate时，
+         * queue.shared.pending就已经重置为null了
+         * @type {Update<State>|null|*}
+         */
         pendingQueue = queue.shared.pending;
 
         if (pendingQueue === null) {
@@ -13163,10 +13291,12 @@ function processUpdateQueue(workInProgress, props, instance, renderLanes) {
     } while (true);
 
     if (newLastBaseUpdate === null) {
+      // 若没有任意的低优先级的任务呢，则将一串的update执行后的结果，就是新的 baseState，
+      // 若有低优先级的任务，则已经在上面设置过 newBaseState 了，就不能在这里设置了
       newBaseState = newState;
     }
 
-    queue.baseState = newBaseState;
+    queue.baseState = newBaseState; // 下次更新时，要使用的初始值
     queue.firstBaseUpdate = newFirstBaseUpdate;
     queue.lastBaseUpdate = newLastBaseUpdate; // Interleaved updates are stored on a separate queue. We aren't going to
     // process them during this render, but we do need to track which lanes
@@ -15568,10 +15698,14 @@ function ChildReconciler(shouldTrackSideEffects) {
   function reconcileSingleElement(returnFiber, currentFirstChild, element, lanes) {
     var key = element.key;
     var child = currentFirstChild;
-
+  // 新节点是单个节点，但无法保证之前的节点也是单个节点，
+  // 这里用循环查找第一个 key和节点类型都一样的节点，进行复用
     while (child !== null) {
       // TODO: If key === null and child.key === null, then this only applies to
       // the first item in the list.
+      // 比较 key 值是否有变化，这是复用 Fiber 节点的先决条件
+      // 若找到 key 一样的节点，即使 key 都为 null，那也是节点一样
+      // 注意 key 为 null 我们也认为是相等，因为单个节点没有 key 也是正常的
       if (child.key === key) {
         var elementType = element.type;
 
@@ -15665,7 +15799,12 @@ function ChildReconciler(shouldTrackSideEffects) {
   // itself. They will be added to the side-effect list as we pass through the
   // children and the parent.
 
-
+/**
+ * returnFiber: 当前 Fiber 节点，即 workInProgress
+ * currentFirstChild: current 树上对应的当前 Fiber 节点的第一个子 Fiber 节点，mount 时为 null，主要是为了是否能复用之前的节点
+ * newChild:returnFiber中的element结构，用来构建returnFiber的子节点
+ * lanes: 优先级相关
+ */
   function reconcileChildFibers(returnFiber, currentFirstChild, newChild, lanes) {
     // This function is not recursive.
     // If the top level item is an array, we treat it as a set of children,
@@ -19893,12 +20032,21 @@ var didWarnAboutTailOptions;
 
 function reconcileChildren(current, workInProgress, nextChildren, renderLanes) {
   if (current === null) {
+    /**
+     * mount阶段，这是一个还未渲染的全新组件，我们不用通过对比最小副作用来更新它的子节点。
+     * 直接转换nextChildren即可，不用标记哪些节点需要删除等等
+     */
     // If this is a fresh new component that hasn't been rendered yet, we
     // won't update its child set by applying minimal side-effects. Instead,
     // we will add them all to the child before it gets rendered. That means
     // we can optimize this reconciliation pass by not tracking side-effects.
     workInProgress.child = mountChildFibers(workInProgress, null, nextChildren, renderLanes);
   } else {
+     /**
+     * 若current不为null，则需要进行的工作：
+     * 1. 判断之前的fiber节点是否可以复用；
+     * 2. 若不能复用，则需要标记删除等；
+     */
     // If the current child is the same as the work in progress, it means that
     // we haven't yet started any work on these children. Therefore, we use
     // the clone algorithm to create a copy of all the current children.
@@ -20557,7 +20705,7 @@ function updateHostRoot(current, workInProgress, renderLanes) {
 
 
   var nextChildren = nextState.element;
-
+  // 若前后两次的element没有变化，则提前退出，直接复用之前的节点
   if (nextChildren === prevChildren) {
     resetHydrationState();
     return bailoutOnAlreadyFinishedWork(current, workInProgress, renderLanes);
@@ -20581,6 +20729,7 @@ function updateHostRoot(current, workInProgress, renderLanes) {
     }
 
     var child = mountChildFibers(workInProgress, null, nextChildren, renderLanes);
+    debugger
     workInProgress.child = child;
     var node = child;
 
@@ -22259,6 +22408,9 @@ function beginWork(current, workInProgress, renderLanes) {
   }
   /*KaSong*/logHook('beginWork', current, workInProgress)
 
+  /**
+   * 判断 workInProgress 是否可以提前退出
+   */
   if (current !== null) {
     var oldProps = current.memoizedProps;
     var newProps = workInProgress.pendingProps;
@@ -25371,6 +25523,7 @@ function isInterleavedUpdate(fiber, lane) {
 // exiting a task.
 
 function ensureRootIsScheduled(root, currentTime) {
+  // 判断是否需要注册新的调度
   var existingCallbackNode = root.callbackNode; // Check if any lanes are being starved by other work. If so, mark them as
   // expired so we know to work on those next.
 
@@ -26018,8 +26171,8 @@ function prepareFreshStack(root, lanes) {
     }
   }
 
-  workInProgressRoot = root;
-  workInProgress = createWorkInProgress(root.current, null);
+  workInProgressRoot = root; // 整个React应用的根节点，即 FiberRootNode
+  workInProgress = createWorkInProgress(root.current, null); // 创建一个WIP
   workInProgressRootRenderLanes = subtreeRenderLanes = workInProgressRootIncludedLanes = lanes;
   workInProgressRootExitStatus = RootIncomplete;
   workInProgressRootFatalError = null;
@@ -26189,7 +26342,10 @@ function renderRootSync(root, lanes) {
         movePendingFibersToMemoized(root, lanes);
       }
     }
-
+    /**
+     * 1.将整颗树的根节点root赋值给workInprogressRoot
+     * 2.利用currnet创建一个workInProgress
+     */
     prepareFreshStack(root, lanes);
   }
 
@@ -28481,6 +28637,7 @@ function createContainer(containerInfo, tag, hydrate, hydrationCallbacks, isStri
   return createFiberRoot(containerInfo, tag, hydrate, hydrationCallbacks, isStrictMode);
 }
 function updateContainer(element, container, parentComponent, callback) {
+  debugger
   {
     onScheduleRoot(container, element);
   }
